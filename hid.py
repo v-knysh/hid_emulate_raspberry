@@ -1,6 +1,11 @@
 from pynput import keyboard
 
 
+def write_report(report):
+    with open('/dev/hidg0', 'rb+') as fd:
+        fd.write(report)
+
+
 class ModifierKeys:
     keys = {
         keyboard.Key.ctrl_l,
@@ -18,24 +23,39 @@ class ModifierKeys:
 
     def press_key(self, key):
         if key == keyboard.Key.ctrl_l:
-            self._pressed_keys ^= 0x01
+            self._pressed_keys |= 0x01
         if key == keyboard.Key.shift_l:
-            self._pressed_keys ^= 0x02
+            self._pressed_keys |= 0x02
         if key == keyboard.Key.alt_l:
-            self._pressed_keys ^= 0x04
+            self._pressed_keys |= 0x04
         if key == keyboard.Key.cmd_l:
-            self._pressed_keys ^= 0x08
+            self._pressed_keys |= 0x08
         if key == keyboard.Key.ctrl_r:
-            self._pressed_keys ^= 0x10
+            self._pressed_keys |= 0x10
         if key == keyboard.Key.shift_r:
-            self._pressed_keys ^= 0x20
+            self._pressed_keys |= 0x20
         if key == keyboard.Key.alt_gr:
-            self._pressed_keys ^= 0x40
+            self._pressed_keys |= 0x40
         if key == keyboard.Key.cmd_r:
-            self._pressed_keys ^= 0x80
+            self._pressed_keys |= 0x80
 
     def release_key(self, key):
-        self.press_key(key)
+        if key == keyboard.Key.ctrl_l:
+            self._pressed_keys &= 0xfe
+        if key == keyboard.Key.shift_l:
+            self._pressed_keys &= 0xfd
+        if key == keyboard.Key.alt_l:
+            self._pressed_keys &= 0xfb
+        if key == keyboard.Key.cmd_l:
+            self._pressed_keys &= 0xf7
+        if key == keyboard.Key.ctrl_r:
+            self._pressed_keys &= 0xef
+        if key == keyboard.Key.shift_r:
+            self._pressed_keys &= 0xdf
+        if key == keyboard.Key.alt_gr:
+            self._pressed_keys &= 0xbf
+        if key == keyboard.Key.cmd_r:
+            self._pressed_keys &= 0x7f
 
     def report(self):
         return self._pressed_keys
@@ -149,6 +169,11 @@ class NonModifierKeys:
         keyboard.Key.print_screen: 70,
         keyboard.Key.scroll_lock: 0,
     }
+
+    _virtual_keys = {
+
+    }
+
     def _normalize_key(self, key):
         try:
             if 0x60 < ord(key.char) < 0x7B: # small letters
@@ -161,39 +186,48 @@ class NonModifierKeys:
                 return ord(key.char) - 19
             else:
                 return self._character_map.get(key.char, 0)
+        except TypeError:
+            print(key, type(key), key.char, key.__dict__)
+            return 0
         except AttributeError as e:
             return self._non_letter_keys.get(key, 0)
 
     def report(self):
         r = list(self._pressed_keys)[:6] + [0]*(6-len(self._pressed_keys))
-        # print(r)
-        return f"{r[0]:02x} {r[1]:02x} {r[2]:02x} {r[3]:02x} {r[4]:02x} {r[5]:02x}"
-
-
+        return r
 
 
 modifier_keys = ModifierKeys()
 non_modifier_keys = NonModifierKeys()
 
+
+import socket
+
+# Set the Raspberry Pi's IP and port
+UDP_IP = "192.168.1.220"  # Replace with the Raspberry Pi's actual IP
+UDP_PORT = 5005
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+
 # The event listener will be running in this block
 with keyboard.Events() as events:
     for event in events:
-        if event.key == keyboard.Key.esc:
+        if event.key == keyboard.Key.end:
             break
         else:
-            # print('Received event {}'.format(event))
+            # print(f'Received event {event}')
+            
             if event.key in ModifierKeys.keys:
-                modifier_keys.press_key(event.key)
+                key_event_handler = modifier_keys
             else:
-                if isinstance(event, keyboard.Events.Press):
-                    non_modifier_keys.press_key(event.key)
-                else:
-                    non_modifier_keys.release_key(event.key)
-            print(f'{modifier_keys._pressed_keys:02x} 00 {non_modifier_keys.report()}')
+                key_event_handler = non_modifier_keys
 
-
-
-def write_report(report):
-    with open('/dev/hidg0', 'rb+') as fd:
-        fd.write(report.encode())
+            if isinstance(event, keyboard.Events.Press):
+                key_event_handler.press_key(event.key)
+            else:
+                key_event_handler.release_key(event.key)
+            report = [modifier_keys.report(), 0] + non_modifier_keys.report()
+            # print(bytes(report))
+            sock.sendto(bytes(report), (UDP_IP, UDP_PORT))
 
