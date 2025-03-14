@@ -215,5 +215,4 @@ class EventListener():
                     else:
                         key_event_handler.release_key(event.key)
                     report = [self._modifier_keys.report(), 0] + self._non_modifier_keys.report()
-                    self._report_sender.apply(report)
-                    
+                    self._report_sender.apply(bytes(report))

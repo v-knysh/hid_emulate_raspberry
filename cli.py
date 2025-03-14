@@ -1,29 +1,44 @@
 import argparse
-import logging
+import signal
+import getpass
 
-logger = logging.getLogger(__name__)
 
-from transport import PlainReportSender, PlainReportReceiver
+from transport import ReportSender, ReportReceiver
+from security import PasswordReportApplier, PasswordReportSender 
 
-def udp_client(ip, port):
+
+def prompt_password():
+    print("input_password")
+    password = getpass.getpass("> ")
+    return password
+
+def signal_handler(sig, frame):
+    print("KeyboardInterrupt ignored. Use End button to stop")
+
+
+def udp_client(ip, port, password):
+    # used this so there is no need to install keyboard library in raspberry
     from keyboard_input import EventListener
 
-    logger.info(f"Started UDP client on {ip}:{port}...")
-    report_sender = PlainReportSender(ip, port)
-    event_listener = EventListener(report_sender)
+    print(f"Started UDP client on {ip}:{port}...")
+    report_sender = ReportSender(ip, port)
+    password_report_sender = PasswordReportSender(password, report_sender)
+    event_listener = EventListener(password_report_sender)
     event_listener.run()
 
 
-def udp_server(ip, port):
+def udp_server(ip, port, password):
     from hid import PlainReportApplier
 
-    logger.info(f"Started UDP server on {ip}:{port}...")
+    print(f"Started UDP server on {ip}:{port}...")
     plain_report_applier = PlainReportApplier()
-    report_receiver = PlainReportReceiver(ip, port, plain_report_applier)
+    password_report_applier = PasswordReportApplier(password, plain_report_applier)
+    report_receiver = ReportReceiver(ip, port, password_report_applier)
     report_receiver.run()
 
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser(description="UDP Client/Server")
     parser.add_argument("UDP_IP", type=str, help="IP address to send/receive UDP packets")
     parser.add_argument("UDP_PORT", type=int, help="Port number for UDP communication")
@@ -31,7 +46,10 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
+    password = prompt_password()
+
     if args.mode == "server":
-        udp_server(args.UDP_IP, args.UDP_PORT)
+        udp_server(args.UDP_IP, args.UDP_PORT, password)
     else:
-        udp_client(args.UDP_IP, args.UDP_PORT)
+        signal.signal(signal.SIGINT, signal_handler)
+        udp_client(args.UDP_IP, args.UDP_PORT, password)
